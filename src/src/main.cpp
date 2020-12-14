@@ -7,7 +7,9 @@
 // Reuben Strangelove
 // Winter 2020
 //
-//
+// MCU: atmega328p (Arduino Mini)
+// LCD: SSD1306 OLED 128 x 32 
+// LEDs: Neopixel strip 
 
 #include <Arduino.h>
 #include <SPI.h>
@@ -76,6 +78,13 @@ int selectedMenuItem = TIME_HOUR;
 
 int numAlarms = 1;
 const int maxNumAlarms = 9;
+int selectedAlarm = 1;
+struct Alarm
+{
+  int hour;
+  int minute;
+};
+Alarm alarms[maxNumAlarms + 1];
 
 const char *colorText[5] = {"Red", "Green", "Blue", "Random", "Rainbow"};
 enum Colors
@@ -110,8 +119,6 @@ enum Speeds
   MAX_SPEED
 };
 int selectedSpeed = FLASH;
-
-
 
 void Error(int x)
 {
@@ -170,8 +177,8 @@ void SetFullStripToColor()
     {
       newRandomColorFlag = false;
       wheelPos = random(0, 256);
-    }      
-     strip.fill(Wheel(wheelPos), 0, strip.numPixels());
+    }
+    strip.fill(Wheel(wheelPos), 0, strip.numPixels());
   }
   else if (selectedColor == RAINBOW)
   {
@@ -278,7 +285,7 @@ void ProcessIndicator(bool isOn)
     }
   }
 
-  strip.show(); 
+  strip.show();
 }
 
 bool ProcessResetButton()
@@ -290,30 +297,49 @@ bool ProcessResetButton()
 bool ProcessControlButtons()
 {
 
-  static bool hourMinToggle;
-
-  static unsigned long hourRepeatCounter = REPEAT_FIRST;
-  static unsigned long minuteRepeatCounter = REPEAT_FIRST;
-  bool hourIncrementFlag = false;
-  bool minuteIncrementFlag = false;
   bool updatePerformedFlag = false;
 
   buttonSelect.read();
   buttonPrev.read();
   buttonNext.read();
 
+  // Button: Select
   if (buttonSelect.wasPressed())
   {
     updatePerformedFlag = true;
-    selectedMenuItem++;
+
+    // Treat alarms as pseudo submenues and cycle through them.
+    if (selectedMenuItem == NUMALARMS)
+    {
+      selectedAlarm = 1;
+    }
+
+    if (selectedMenuItem == ALARM_MIN)
+    {
+      selectedMenuItem = ALARM_HOUR;
+      selectedAlarm++;
+      if (selectedAlarm > numAlarms)
+      {
+        selectedAlarm = 0;
+        selectedMenuItem += 2;
+      }
+    }
+    else
+    {
+      selectedMenuItem++;
+    }
+
     if (selectedMenuItem >= MAX_MENUITEM)
     {
       selectedMenuItem = 0;
     }
   }
 
+  // Button: Prev
   if (buttonPrev.wasPressed())
   {
+    updatePerformedFlag = true;
+
     if (selectedMenuItem == TIME_HOUR)
     {
       if (timeHour == 0)
@@ -349,9 +375,25 @@ bool ProcessControlButtons()
     }
     else if (selectedMenuItem == ALARM_HOUR)
     {
+      if (alarms[selectedAlarm].hour = 0)
+      {
+        alarms[selectedAlarm].hour = 23;
+      }
+      else
+      {
+        alarms[selectedAlarm].hour--;
+      }
     }
     else if (selectedMenuItem == ALARM_MIN)
     {
+      if (alarms[selectedAlarm].minute = 0)
+      {
+        alarms[selectedAlarm].minute = 59;
+      }
+      else
+      {
+        alarms[selectedAlarm].minute--;
+      }
     }
     else if (selectedMenuItem == COLOR)
     {
@@ -388,8 +430,11 @@ bool ProcessControlButtons()
     }
   }
 
+  // Button: Next
   if (buttonNext.wasPressed())
   {
+    updatePerformedFlag = true;
+
     if (selectedMenuItem == TIME_HOUR)
     {
       timeHour++;
@@ -416,9 +461,19 @@ bool ProcessControlButtons()
     }
     else if (selectedMenuItem == ALARM_HOUR)
     {
+      alarms[selectedAlarm].hour++;
+      if (alarms[selectedAlarm].hour > 59)
+      {
+        alarms[selectedAlarm].hour = 0;
+      }
     }
     else if (selectedMenuItem == ALARM_MIN)
     {
+      alarms[selectedAlarm].minute++;
+      if (alarms[selectedAlarm].minute > 59)
+      {
+        alarms[selectedAlarm].minute = 0;
+      }
     }
     else if (selectedMenuItem == COLOR)
     {
@@ -444,12 +499,12 @@ bool ProcessControlButtons()
         selectedSpeed = 0;
       }
     }
-  }  
+  }
 
   return updatePerformedFlag;
 }
 
-void UpdateDisplay(bool newMenuSelectedFlag)
+void UpdateDisplay(bool activeFlag = true)
 {
 
   static unsigned long flashMillis;
@@ -470,10 +525,10 @@ void UpdateDisplay(bool newMenuSelectedFlag)
 
   // Update entire display when new menu item is selected.
   // Display first row.
-  static bool refreshOnStartUpFlag = true;
-  if (newMenuSelectedFlag || refreshOnStartUpFlag)
+  static bool selectedMenuItemBuffer = 99; // Force refresh upon startup.
+  if (selectedMenuItemBuffer != selectedMenuItem)
   {
-    refreshOnStartUpFlag = false;
+    selectedMenuItemBuffer = selectedMenuItem;
     display.clearDisplay();
     display.setCursor(0, 0);
 
@@ -487,7 +542,7 @@ void UpdateDisplay(bool newMenuSelectedFlag)
     }
     else if (selectedMenuItem == ALARM_HOUR || selectedMenuItem == ALARM_MIN)
     {
-      sprintf(buf, "Alarm: %u", 1);
+      sprintf(buf, "Alarm: %u", selectedAlarm);
       display.println(buf);
     }
     else if (selectedMenuItem == COLOR)
@@ -506,7 +561,6 @@ void UpdateDisplay(bool newMenuSelectedFlag)
 
   // Display second row.
   display.setCursor(0, 16);
-
 
   if (selectedMenuItem == TIME_HOUR)
   {
@@ -529,16 +583,16 @@ void UpdateDisplay(bool newMenuSelectedFlag)
   else if (selectedMenuItem == ALARM_HOUR)
   {
     if (displayValue)
-      sprintf(buf, "%02u:%02u", alarmHour, alarmMinute);
+      sprintf(buf, "%02u:%02u", alarms[selectedAlarm].hour, alarms[selectedAlarm].minute);
     else
-      sprintf(buf, "  :%02u", alarmMinute);
+      sprintf(buf, "  :%02u", alarms[selectedAlarm].minute);
   }
   else if (selectedMenuItem == ALARM_MIN)
   {
     if (displayValue)
-      sprintf(buf, "%02u:%02u", alarmHour, alarmMinute);
+      sprintf(buf, "%02u:%02u", alarms[selectedAlarm].hour, alarms[selectedAlarm].minute);
     else
-      sprintf(buf, "%02u:  ", alarmHour);
+      sprintf(buf, "%02u:  ", alarms[selectedAlarm].hour);
   }
   else if (selectedMenuItem == COLOR)
   {
@@ -658,6 +712,113 @@ void SetupRTC()
   Serial.println("RTC setup finished.");
 }
 
+void LoadEEPROMData()
+{
+  selectedColor = EEPROM.read(0);
+  selectedPattern = EEPROM.read(1);
+  selectedSpeed = EEPROM.read(2);
+  numAlarms = EEPROM.read(3);
+
+  for (int i = 0; i < maxNumAlarms; i++)
+  {
+    alarms[i].hour = EEPROM.read(16 + i);
+    alarms[i].minute = EEPROM.read(32 + i);
+
+    if (alarms[i].hour = 255)
+    {
+      alarms[i].hour = 0;
+    }
+    if (alarms[i].minute = 255)
+    {
+      alarms[i].minute = 0;
+    }
+  }
+
+  if (selectedColor == 255)
+  {
+    selectedColor = 0;
+  }
+  if (selectedPattern == 255)
+  {
+    selectedPattern = 0;
+  }
+  if (selectedSpeed == 255)
+  {
+    selectedSpeed = 0;
+  }
+  if (numAlarms == 255)
+  {
+    numAlarms = 0;
+  }
+}
+
+void SaveEEPROMData()
+{
+  static int oldTimeHour, oldTimeMinute;
+  static Alarm oldAlarms[maxNumAlarms];
+  static int oldSelectedColor, oldSelectedPattern, oldSelectedSpeed;
+  static int oldNumAlarms;
+
+  // Check if variables to be saved to eeprom or RTC have changed.
+  static unsigned long eepromMillis;
+  if ((eepromMillis + 5000) < millis())
+  {
+    eepromMillis = millis();
+
+    // Check if time was updated by the user.
+    if (oldTimeHour != timeHour || oldTimeMinute != timeMinute)
+    {
+      Rtc.SetDateTime(RtcDateTime(2020, 1, 1, timeHour, timeMinute, 0));
+    }
+
+    // Check if an alarm was updated by the user.
+    for (int i = 0; i < maxNumAlarms; i++)
+    {
+      if (oldAlarms[i].hour != alarms[i].hour || oldAlarms[i].minute != alarms[i].minute)
+      {
+        oldAlarms[i].hour = alarms[i].hour;
+        oldAlarms[i].minute = alarms[i].minute;
+        EEPROM.write(16 + i, alarms[i].hour);
+        EEPROM.write(32 + i, alarms[i].minute);
+      }
+    }
+
+    // Check if options was updated by the user.
+    if (oldSelectedColor != selectedColor)
+    {
+      oldSelectedColor = selectedColor;
+      EEPROM.write(0, selectedColor);
+    }
+
+    if (oldSelectedPattern != selectedPattern)
+    {
+      oldSelectedPattern = selectedPattern;
+      EEPROM.write(1, selectedPattern);
+    }
+
+    if (oldSelectedSpeed != selectedSpeed)
+    {
+      oldSelectedSpeed = selectedSpeed;
+      EEPROM.write(2, selectedSpeed);
+    }
+    if (oldNumAlarms != numAlarms)
+    {
+      oldNumAlarms = numAlarms;
+      EEPROM.write(3, numAlarms);
+    }
+  }
+}
+
+void BlinkOnboardLED()
+{
+  static unsigned long builtinLedMillis;
+  if ((builtinLedMillis + 500) < millis())
+  {
+    builtinLedMillis = millis();
+    digitalWrite(PIN_LED_BUILTIN, !digitalRead(PIN_LED_BUILTIN));
+  }
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -682,16 +843,7 @@ void setup()
     Error(1000);
   }
 
-  alarmHour = EEPROM.read(0);
-  alarmMinute = EEPROM.read(1);
-  if (alarmHour == 255)
-  {
-    alarmHour = 0;
-  }
-  if (alarmMinute == 255)
-  {
-    alarmMinute = 0;
-  }
+  LoadEEPROMData();
 
   //RtcDateTime dateTime = Rtc.GetDateTime();
   //timeHour = dateTime.Hour();
@@ -701,36 +853,14 @@ void setup()
 
 void loop()
 {
-  bool newMenuSelected = false;
+  BlinkOnboardLED();
 
-  static unsigned long builtinLedMillis;
-  if ((builtinLedMillis + 500) < millis())
-  {
-    builtinLedMillis = millis();
-    digitalWrite(PIN_LED_BUILTIN, !digitalRead(PIN_LED_BUILTIN));
-  }
+  bool userUpdateFlag = ProcessControlButtons();
 
-  if (ProcessControlButtons())
-  {
-    newMenuSelected = true;
 
-    // Check if time was updated by the user.
-    if (oldTimeHour != timeHour || oldTimeMinute != timeMinute)
-    {
-      Rtc.SetDateTime(RtcDateTime(2020, 1, 1, timeHour, timeMinute, 0));
-    }
 
-    if (oldAlarmHour != alarmHour || oldAlarmMinute != alarmMinute)
-    {
-      oldAlarmHour = alarmHour;
-      oldAlarmMinute = alarmMinute;
-      // TODO: add mechanism to avoid writing to many cycles to EEPROM.
-      EEPROM.write(0, alarmHour);
-      EEPROM.write(1, alarmMinute);
-    }
-  }
+  UpdateDisplay();
 
-  /*
   // Check if time has updated.
   if (Rtc.IsDateTimeValid())
   {
@@ -738,11 +868,11 @@ void loop()
     timeHour = dateTime.Hour();
     timeMinute = dateTime.Minute();
 
+    // Time updated from RTC
     if (oldTimeHour != timeHour || oldTimeMinute != timeMinute)
     {
       oldTimeHour = timeHour;
       oldTimeMinute = timeMinute;
-      updateDisplayFlag = true;
 
       // Check for alarm trigger
       if (timeHour == alarmHour && timeMinute == alarmMinute)
@@ -756,17 +886,6 @@ void loop()
     // RTC error, likely bad battery.
     Error(100);
   }
-  */
-
-  UpdateDisplay(newMenuSelected);
-
-  /*
-  if (updateDisplayFlag)
-  {
-    updateDisplayFlag = false;
-    UpdateDisplay();
-  }
-  */
 
   if (ProcessResetButton())
   {
@@ -774,4 +893,6 @@ void loop()
   }
 
   ProcessIndicator(indicatorOn);
+
+  SaveEEPROMData();
 }
