@@ -8,8 +8,8 @@
 // Winter 2020
 //
 // MCU: atmega328p (Arduino Mini)
-// LCD: SSD1306 OLED 128 x 32 
-// LEDs: Neopixel strip 
+// LCD: SSD1306 OLED 128 x 32
+// LEDs: Neopixel strip
 
 #include <Arduino.h>
 #include <SPI.h>
@@ -42,6 +42,7 @@ RtcDS1307<TwoWire> Rtc(Wire);
 #define OLED_RESET -1    // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 const int numSpacesLCD = 9;
+bool displayOnFlag = true;
 
 Button buttonReset(PIN_BUTTON_RESET);
 Button buttonSelect(PIN_BUTTON_SELECT);
@@ -57,7 +58,7 @@ const unsigned long
 #define countof(a) (sizeof(a) / sizeof(a[0]))
 
 int timeHour, timeMinute, alarmHour, alarmMinute;
-int oldTimeHour, oldTimeMinute, oldAlarmHour, oldAlarmMinute;
+
 bool indicatorOn = false;
 
 bool newRandomColorFlag;
@@ -78,11 +79,11 @@ int selectedMenuItem = TIME_HOUR;
 
 int numAlarms = 1;
 const int maxNumAlarms = 9;
-int selectedAlarm = 1;
+int selectedAlarm;
 struct Alarm
 {
-  int hour;
-  int minute;
+  byte hour;
+  byte minute;
 };
 Alarm alarms[maxNumAlarms + 1];
 
@@ -155,8 +156,6 @@ uint32_t Wheel(byte WheelPos)
 
 void SetFullStripToColor()
 {
-  uint32_t color;
-
   if (selectedColor == RED)
   {
     strip.fill(strip.Color(255, 0, 0), 0, strip.numPixels());
@@ -171,7 +170,6 @@ void SetFullStripToColor()
   }
   else if (selectedColor == RANDOM)
   {
-    static uint32_t color;
     static byte wheelPos = 0;
     if (newRandomColorFlag)
     {
@@ -197,10 +195,15 @@ void SetFullStripToColor()
   }
 }
 
-void ProcessIndicator(bool isOn)
+void ProcessIndicator(bool indicatorOn)
 {
-  static unsigned int pwmValue = 0;
-  static unsigned long pwmMillis;
+
+  if (!indicatorOn)
+  {
+    strip.fill(strip.Color(0, 0, 0), 0, strip.numPixels());
+    strip.show();
+    return;
+  }
 
   SetFullStripToColor();
 
@@ -208,7 +211,9 @@ void ProcessIndicator(bool isOn)
   {
     static bool toggleFlag = true;
     static unsigned long last = millis();
-    if (millis() - last > 3000)
+
+    unsigned int delay = selectedSpeed == 0 ? 2000 : selectedSpeed == 1 ? 1000 : selectedSpeed == 2 ? 500 : 100;
+    if (millis() - last > delay)
     {
       last = millis();
       toggleFlag = !toggleFlag;
@@ -220,10 +225,13 @@ void ProcessIndicator(bool isOn)
   {
     static unsigned int sinValue = 0;
     static unsigned long last = millis();
-    if (millis() - last > 1)
+
+    unsigned int delay = selectedSpeed == 0 ? 10 : selectedSpeed == 1 ? 5 : selectedSpeed == 2 ? 1 : 0;
+    if (millis() - last > delay)
     {
       last = millis();
-      sinValue++;
+
+      sinValue += 1;
       if (sinValue == 0)
       {
         newRandomColorFlag = true;
@@ -236,9 +244,9 @@ void ProcessIndicator(bool isOn)
     static unsigned long last = millis();
     static bool toggleFlag = true;
 
-    int delay = toggleFlag ? 1000 / 10 : 1000;
-
-    if (millis() - last > delay)
+    unsigned int delay = selectedSpeed == 0 ? 3000 : selectedSpeed == 1 ? 1500 : selectedSpeed == 2 ? 500 : 100;
+    unsigned int strobeDelay = toggleFlag ? 250 : delay;
+    if (millis() - last > strobeDelay)
     {
       last = millis();
       newRandomColorFlag = true;
@@ -250,7 +258,9 @@ void ProcessIndicator(bool isOn)
   {
     static byte index = 0;
     static unsigned long last = millis();
-    if (millis() - last > 100)
+
+    unsigned int delay = selectedSpeed == 0 ? 1000 : selectedSpeed == 1 ? 500 : selectedSpeed == 2 ? 100 : 100;
+    if (millis() - last > delay)
     {
       last = millis();
       newRandomColorFlag = true;
@@ -267,7 +277,9 @@ void ProcessIndicator(bool isOn)
   {
     static byte index = 0;
     static unsigned long last = millis();
-    if (millis() - last > 100)
+
+    unsigned int delay = selectedSpeed == 0 ? 500 : selectedSpeed == 1 ? 250 : selectedSpeed == 2 ? 100 : 100;
+    if (millis() - last > delay)
     {
       last = millis();
       newRandomColorFlag = true;
@@ -308,6 +320,11 @@ bool ProcessControlButtons()
   {
     updatePerformedFlag = true;
 
+    if (displayOnFlag == false)
+    {
+      return true;
+    }
+
     // Treat alarms as pseudo submenues and cycle through them.
     if (selectedMenuItem == NUMALARMS)
     {
@@ -339,6 +356,11 @@ bool ProcessControlButtons()
   if (buttonPrev.wasPressed())
   {
     updatePerformedFlag = true;
+
+    if (displayOnFlag == false)
+    {
+      return true;
+    }
 
     if (selectedMenuItem == TIME_HOUR)
     {
@@ -375,7 +397,7 @@ bool ProcessControlButtons()
     }
     else if (selectedMenuItem == ALARM_HOUR)
     {
-      if (alarms[selectedAlarm].hour = 0)
+      if (alarms[selectedAlarm].hour == 0)
       {
         alarms[selectedAlarm].hour = 23;
       }
@@ -386,7 +408,7 @@ bool ProcessControlButtons()
     }
     else if (selectedMenuItem == ALARM_MIN)
     {
-      if (alarms[selectedAlarm].minute = 0)
+      if (alarms[selectedAlarm].minute == 0)
       {
         alarms[selectedAlarm].minute = 59;
       }
@@ -434,6 +456,11 @@ bool ProcessControlButtons()
   if (buttonNext.wasPressed())
   {
     updatePerformedFlag = true;
+
+    if (displayOnFlag == false)
+    {
+      return true;
+    }
 
     if (selectedMenuItem == TIME_HOUR)
     {
@@ -504,24 +531,34 @@ bool ProcessControlButtons()
   return updatePerformedFlag;
 }
 
-void UpdateDisplay(bool activeFlag = true)
+void UpdateDisplay(bool updateFlag)
 {
-
   static unsigned long flashMillis;
   static bool displayValue = true;
-
   char buf[20];
 
-  display.setTextSize(2);
-  display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+  // Prevent awkard flashes when user activates a button.
+  if (updateFlag)
+  {
+    flashMillis = millis();
+  }
 
   int flashDelay = displayValue ? 600 : 100; // selectedItemFlash
-
   if ((flashMillis + flashDelay) < millis())
   {
     flashMillis = millis();
     displayValue = !displayValue;
+    updateFlag = true;
   }
+
+  // If there is no data flash or user input, return to save cycles for the color pattern timings.
+  if (!updateFlag)
+  {
+    return;
+  }
+
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
 
   // Update entire display when new menu item is selected.
   // Display first row.
@@ -648,12 +685,6 @@ void printDateTime(const RtcDateTime &dt)
 
 void SetupRTC()
 {
-  // Setup code provided by library example:
-  // https://github.com/Makuna/Rtc/blob/master/examples/DS1307_Simple/DS1307_Simple.ino
-
-  strip.begin();
-  strip.show();
-
   Rtc.Begin();
 
   RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
@@ -674,12 +705,7 @@ void SetupRTC()
       // Common Causes:
       //    1) first time you ran and the device wasn't running yet
       //    2) the battery on the device is low or even missing
-
       Serial.println("RTC lost confidence in the DateTime!");
-      // following line sets the RTC to the date & time this sketch was compiled
-      // it will also reset the valid flag internally unless the Rtc device is
-      // having an issue
-
       Rtc.SetDateTime(compiled);
     }
   }
@@ -705,8 +731,6 @@ void SetupRTC()
     Serial.println("RTC is the same as compile time! (not expected but all is fine)");
   }
 
-  // never assume the Rtc was last configured by you, so
-  // just clear them to your needed state
   Rtc.SetSquareWavePin(DS1307SquareWaveOut_Low);
 
   Serial.println("RTC setup finished.");
@@ -724,11 +748,11 @@ void LoadEEPROMData()
     alarms[i].hour = EEPROM.read(16 + i);
     alarms[i].minute = EEPROM.read(32 + i);
 
-    if (alarms[i].hour = 255)
+    if (alarms[i].hour == 255)
     {
       alarms[i].hour = 0;
     }
-    if (alarms[i].minute = 255)
+    if (alarms[i].minute == 255)
     {
       alarms[i].minute = 0;
     }
@@ -754,8 +778,7 @@ void LoadEEPROMData()
 
 void SaveEEPROMData()
 {
-  static int oldTimeHour, oldTimeMinute;
-  static Alarm oldAlarms[maxNumAlarms];
+  static Alarm oldAlarms[maxNumAlarms + 1];
   static int oldSelectedColor, oldSelectedPattern, oldSelectedSpeed;
   static int oldNumAlarms;
 
@@ -764,12 +787,6 @@ void SaveEEPROMData()
   if ((eepromMillis + 5000) < millis())
   {
     eepromMillis = millis();
-
-    // Check if time was updated by the user.
-    if (oldTimeHour != timeHour || oldTimeMinute != timeMinute)
-    {
-      Rtc.SetDateTime(RtcDateTime(2020, 1, 1, timeHour, timeMinute, 0));
-    }
 
     // Check if an alarm was updated by the user.
     for (int i = 0; i < maxNumAlarms; i++)
@@ -780,6 +797,8 @@ void SaveEEPROMData()
         oldAlarms[i].minute = alarms[i].minute;
         EEPROM.write(16 + i, alarms[i].hour);
         EEPROM.write(32 + i, alarms[i].minute);
+        Serial.print("Saving alarm data for alarm: ");
+        Serial.println(i);
       }
     }
 
@@ -822,10 +841,10 @@ void BlinkOnboardLED()
 void setup()
 {
   Serial.begin(115200);
-
   Serial.println("ReMEDer starting up...");
 
-  delay(1000);
+  strip.begin();
+  strip.show();
 
   pinMode(PIN_LED_BUILTIN, OUTPUT);
   pinMode(PIN_LED_RESET_BUTTON, OUTPUT);
@@ -853,13 +872,41 @@ void setup()
 
 void loop()
 {
+
+  static unsigned long displayTimeoutMillis;
+
   BlinkOnboardLED();
 
-  bool userUpdateFlag = ProcessControlButtons();
+  bool updateFlag = false;
+  if (ProcessControlButtons())
+  {
+    updateFlag = true;
+    displayOnFlag = true;
+    displayTimeoutMillis = millis();
 
+    // Check if time was updated by the user.
+    static int oldTimeHour, oldTimeMinute;
+    if (oldTimeHour != timeHour || oldTimeMinute != timeMinute)
+    {
+      oldTimeHour = timeHour;
+      oldTimeMinute = timeMinute;
+      Rtc.SetDateTime(RtcDateTime(2020, 1, 1, timeHour, timeMinute, 0));
+      Serial.println("Saving time data to RTC");
+    }
+  }
 
+  if ((displayTimeoutMillis + 10000) < millis())
+  {
+    displayTimeoutMillis = millis();
+    displayOnFlag = false;
+    display.ssd1306_command(SSD1306_DISPLAYOFF);
+  }
 
-  UpdateDisplay();
+  if (displayOnFlag)
+  {
+    display.ssd1306_command(SSD1306_DISPLAYON);
+    UpdateDisplay(updateFlag);
+  }
 
   // Check if time has updated.
   if (Rtc.IsDateTimeValid())
@@ -868,16 +915,22 @@ void loop()
     timeHour = dateTime.Hour();
     timeMinute = dateTime.Minute();
 
-    // Time updated from RTC
+    // Trigger alarm only once upon time clocking into an alarm value.
+    static int oldTimeHour, oldTimeMinute;
     if (oldTimeHour != timeHour || oldTimeMinute != timeMinute)
     {
       oldTimeHour = timeHour;
       oldTimeMinute = timeMinute;
 
-      // Check for alarm trigger
-      if (timeHour == alarmHour && timeMinute == alarmMinute)
+      // Check for alarm trigger.
+      for (int i = 0; i < maxNumAlarms; i++)
       {
-        indicatorOn = true;
+        if (timeHour == alarms[i].hour && timeMinute == alarms[i].minute)
+        {
+          indicatorOn = true;
+          Serial.print("Triggered alarm: ");
+          Serial.println(i);
+        }
       }
     }
   }
@@ -892,7 +945,23 @@ void loop()
     indicatorOn = false;
   }
 
-  ProcessIndicator(indicatorOn);
+  // Show alarm indicator when activated by the alarm or
+  // when the user is interacting with certain menu items.
+  if (displayOnFlag)
+  {
+    if (selectedMenuItem == COLOR || selectedMenuItem == PATTERN || selectedMenuItem == SPEED)
+    {
+       ProcessIndicator(true);
+    }
+    else
+    {
+       ProcessIndicator(false);
+    }    
+  }
+  else
+  {
+     ProcessIndicator(indicatorOn);
+  } 
 
   SaveEEPROMData();
 }
