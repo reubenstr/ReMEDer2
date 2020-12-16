@@ -26,7 +26,7 @@
 #define PIN_BUTTON_PREV 3
 #define PIN_BUTTON_SELECT 4
 #define PIN_BUTTON_RESET 7
-#define PIN_LED_RESET_BUTTON 8
+#define PIN_LED_RESET_BUTTON 5
 #define PIN_LED_STRIP 9
 #define PIN_LED_BUILTIN 13
 
@@ -86,6 +86,7 @@ struct Alarm
   byte minute;
 };
 Alarm alarms[maxNumAlarms + 1];
+Alarm oldAlarms[maxNumAlarms + 1];
 
 const char *colorText[5] = {"Red", "Green", "Blue", "Random", "Rainbow"};
 enum Colors
@@ -223,7 +224,7 @@ void ProcessIndicator(bool indicatorOn)
   }
   else if (selectedPattern == SINWAVE)
   {
-    static unsigned int sinValue = 0;
+    static  int sinValue = 0;
     static unsigned long last = millis();
 
     unsigned int delay = selectedSpeed == 0 ? 10 : selectedSpeed == 1 ? 5 : selectedSpeed == 2 ? 1 : 0;
@@ -231,10 +232,14 @@ void ProcessIndicator(bool indicatorOn)
     {
       last = millis();
 
-      sinValue += 1;
-      if (sinValue == 0)
+      sinValue++;
+      if (sinValue == 361)
       {
-        newRandomColorFlag = true;
+        sinValue = 0;      
+      }
+      if (sinValue == 180) 
+      {
+          newRandomColorFlag = true;
       }
     }
     strip.setBrightness((255 / 2) + (255 / 2) * sin(radians(sinValue)));
@@ -540,6 +545,7 @@ void UpdateDisplay(bool updateFlag)
   // Prevent awkard flashes when user activates a button.
   if (updateFlag)
   {
+    displayValue = true;
     flashMillis = millis();
   }
 
@@ -548,122 +554,124 @@ void UpdateDisplay(bool updateFlag)
   {
     flashMillis = millis();
     displayValue = !displayValue;
-    updateFlag = true;
-  }
-
-  // If there is no data flash or user input, return to save cycles for the color pattern timings.
-  if (!updateFlag)
-  {
-    return;
-  }
-
-  display.setTextSize(2);
-  display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-
-  // Update entire display when new menu item is selected.
-  // Display first row.
-  static bool selectedMenuItemBuffer = 99; // Force refresh upon startup.
-  if (selectedMenuItemBuffer != selectedMenuItem)
-  {
-    selectedMenuItemBuffer = selectedMenuItem;
-    display.clearDisplay();
-    display.setCursor(0, 0);
-
-    if (selectedMenuItem == TIME_HOUR || selectedMenuItem == TIME_MIN)
+    // Only flash on certain menu items.
+    if (selectedMenuItem == TIME_HOUR || selectedMenuItem == TIME_MIN || selectedMenuItem == ALARM_HOUR || selectedMenuItem == ALARM_MIN)
     {
-      display.println("Time");
+      updateFlag = true;
+    }
+  }
+
+  // Only update when there is new data or the data is to be flashed.
+  if (updateFlag)
+  {
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+
+    // Update entire display when new menu item is selected.
+    // Display first row.
+    static bool selectedMenuItemBuffer = 99; // Force refresh upon startup.
+    if (selectedMenuItemBuffer != selectedMenuItem)
+    {
+      selectedMenuItemBuffer = selectedMenuItem;
+      display.clearDisplay();
+      display.setCursor(0, 0);
+
+      if (selectedMenuItem == TIME_HOUR || selectedMenuItem == TIME_MIN)
+      {
+        display.println("Time");
+      }
+      else if (selectedMenuItem == NUMALARMS)
+      {
+        display.println("No. Alarms");
+      }
+      else if (selectedMenuItem == ALARM_HOUR || selectedMenuItem == ALARM_MIN)
+      {
+        sprintf(buf, "Alarm: %u", selectedAlarm);
+        display.println(buf);
+      }
+      else if (selectedMenuItem == COLOR)
+      {
+        display.println("Color");
+      }
+      else if (selectedMenuItem == PATTERN)
+      {
+        display.println("Pattern");
+      }
+      else if (selectedMenuItem == SPEED)
+      {
+        display.println("Speed");
+      }
+    }
+
+    // Display second row.
+    display.setCursor(0, 16);
+
+    if (selectedMenuItem == TIME_HOUR)
+    {
+      if (displayValue)
+        sprintf(buf, "%02u:%02u", timeHour, timeMinute);
+      else
+        sprintf(buf, "  :%02u", timeMinute);
+    }
+    if (selectedMenuItem == TIME_MIN)
+    {
+      if (displayValue)
+        sprintf(buf, "%02u:%02u", timeHour, timeMinute);
+      else
+        sprintf(buf, "%02u:  ", timeHour);
     }
     else if (selectedMenuItem == NUMALARMS)
     {
-      display.println("No. Alarms");
+      display.println(numAlarms);
     }
-    else if (selectedMenuItem == ALARM_HOUR || selectedMenuItem == ALARM_MIN)
+    else if (selectedMenuItem == ALARM_HOUR)
     {
-      sprintf(buf, "Alarm: %u", selectedAlarm);
-      display.println(buf);
+      if (displayValue)
+        sprintf(buf, "%02u:%02u", alarms[selectedAlarm].hour, alarms[selectedAlarm].minute);
+      else
+        sprintf(buf, "  :%02u", alarms[selectedAlarm].minute);
+    }
+    else if (selectedMenuItem == ALARM_MIN)
+    {
+      if (displayValue)
+        sprintf(buf, "%02u:%02u", alarms[selectedAlarm].hour, alarms[selectedAlarm].minute);
+      else
+        sprintf(buf, "%02u:  ", alarms[selectedAlarm].hour);
     }
     else if (selectedMenuItem == COLOR)
     {
-      display.println("Color");
+      if (displayValue)
+      {
+        sprintf(buf, "%-9s\n", colorText[selectedColor]);
+        display.println(buf);
+      }
+      else
+        display.println("         ");
     }
     else if (selectedMenuItem == PATTERN)
     {
-      display.println("Pattern");
+      if (displayValue)
+      {
+        sprintf(buf, "%-9s\n", patternText[selectedPattern]);
+        display.println(buf);
+      }
+      else
+        display.println("         ");
     }
     else if (selectedMenuItem == SPEED)
     {
-      display.println("Speed");
+      if (displayValue)
+      {
+        sprintf(buf, "%-9s\n", speedText[selectedSpeed]);
+        display.println(buf);
+      }
+      else
+        display.println("         ");
     }
-  }
 
-  // Display second row.
-  display.setCursor(0, 16);
-
-  if (selectedMenuItem == TIME_HOUR)
-  {
-    if (displayValue)
-      sprintf(buf, "%02u:%02u", timeHour, timeMinute);
-    else
-      sprintf(buf, "  :%02u", timeMinute);
+    display.println(buf);
+    display.display();
   }
-  if (selectedMenuItem == TIME_MIN)
-  {
-    if (displayValue)
-      sprintf(buf, "%02u:%02u", timeHour, timeMinute);
-    else
-      sprintf(buf, "%02u:  ", timeHour);
-  }
-  else if (selectedMenuItem == NUMALARMS)
-  {
-    display.println(numAlarms);
-  }
-  else if (selectedMenuItem == ALARM_HOUR)
-  {
-    if (displayValue)
-      sprintf(buf, "%02u:%02u", alarms[selectedAlarm].hour, alarms[selectedAlarm].minute);
-    else
-      sprintf(buf, "  :%02u", alarms[selectedAlarm].minute);
-  }
-  else if (selectedMenuItem == ALARM_MIN)
-  {
-    if (displayValue)
-      sprintf(buf, "%02u:%02u", alarms[selectedAlarm].hour, alarms[selectedAlarm].minute);
-    else
-      sprintf(buf, "%02u:  ", alarms[selectedAlarm].hour);
-  }
-  else if (selectedMenuItem == COLOR)
-  {
-    if (displayValue)
-    {
-      sprintf(buf, "%-9s\n", colorText[selectedColor]);
-      display.println(buf);
-    }
-    else
-      display.println("         ");
-  }
-  else if (selectedMenuItem == PATTERN)
-  {
-    if (displayValue)
-    {
-      sprintf(buf, "%-9s\n", patternText[selectedPattern]);
-      display.println(buf);
-    }
-    else
-      display.println("         ");
-  }
-  else if (selectedMenuItem == SPEED)
-  {
-    if (displayValue)
-    {
-      sprintf(buf, "%-9s\n", speedText[selectedSpeed]);
-      display.println(buf);
-    }
-    else
-      display.println("         ");
-  }
-
-  display.println(buf);
-  display.display();
 }
 
 // Debug.
@@ -747,6 +755,8 @@ void LoadEEPROMData()
   {
     alarms[i].hour = EEPROM.read(16 + i);
     alarms[i].minute = EEPROM.read(32 + i);
+    oldAlarms[i].hour = alarms[i].hour;
+    oldAlarms[i].minute = alarms[i].minute;
 
     if (alarms[i].hour == 255)
     {
@@ -778,15 +788,17 @@ void LoadEEPROMData()
 
 void SaveEEPROMData()
 {
-  static Alarm oldAlarms[maxNumAlarms + 1];
   static int oldSelectedColor, oldSelectedPattern, oldSelectedSpeed;
   static int oldNumAlarms;
+  char buf[50];
 
   // Check if variables to be saved to eeprom or RTC have changed.
   static unsigned long eepromMillis;
   if ((eepromMillis + 5000) < millis())
   {
     eepromMillis = millis();
+
+    return;
 
     // Check if an alarm was updated by the user.
     for (int i = 0; i < maxNumAlarms; i++)
@@ -797,8 +809,8 @@ void SaveEEPROMData()
         oldAlarms[i].minute = alarms[i].minute;
         EEPROM.write(16 + i, alarms[i].hour);
         EEPROM.write(32 + i, alarms[i].minute);
-        Serial.print("Saving alarm data for alarm: ");
-        Serial.println(i);
+        sprintf(buf, "Alarm %u saved as %u:%u.", i, alarms[i].hour, alarms[i].minute);
+        Serial.println(buf);
       }
     }
 
@@ -807,23 +819,31 @@ void SaveEEPROMData()
     {
       oldSelectedColor = selectedColor;
       EEPROM.write(0, selectedColor);
+      sprintf(buf, "Saving color value: %u.", selectedColor);
+      Serial.println(buf);
     }
 
     if (oldSelectedPattern != selectedPattern)
     {
       oldSelectedPattern = selectedPattern;
       EEPROM.write(1, selectedPattern);
+      sprintf(buf, "Saving pattern value: %u.", selectedPattern);
+      Serial.println(buf);
     }
 
     if (oldSelectedSpeed != selectedSpeed)
     {
       oldSelectedSpeed = selectedSpeed;
       EEPROM.write(2, selectedSpeed);
+      sprintf(buf, "Saving speed value: %u.", selectedSpeed);
+      Serial.println(buf);
     }
     if (oldNumAlarms != numAlarms)
     {
       oldNumAlarms = numAlarms;
       EEPROM.write(3, numAlarms);
+      sprintf(buf, "Saving numAlarms value: %u.", numAlarms);
+      Serial.println(buf);
     }
   }
 }
@@ -831,10 +851,13 @@ void SaveEEPROMData()
 void BlinkOnboardLED()
 {
   static unsigned long builtinLedMillis;
-  if ((builtinLedMillis + 500) < millis())
+  static bool toggle;
+  int delay = toggle ? 100 : 900;
+  if ((builtinLedMillis + delay) < millis())
   {
     builtinLedMillis = millis();
-    digitalWrite(PIN_LED_BUILTIN, !digitalRead(PIN_LED_BUILTIN));
+    toggle = !toggle;
+    digitalWrite(PIN_LED_BUILTIN, toggle);
   }
 }
 
@@ -895,6 +918,7 @@ void loop()
     }
   }
 
+  // Turn off display after timeout.
   if ((displayTimeoutMillis + 10000) < millis())
   {
     displayTimeoutMillis = millis();
@@ -951,17 +975,18 @@ void loop()
   {
     if (selectedMenuItem == COLOR || selectedMenuItem == PATTERN || selectedMenuItem == SPEED)
     {
-       ProcessIndicator(true);
+      ProcessIndicator(true);
     }
     else
     {
-       ProcessIndicator(false);
-    }    
+      ProcessIndicator(false);
+    }
   }
   else
   {
-     ProcessIndicator(indicatorOn);
-  } 
+    ProcessIndicator(indicatorOn);
+    analogWrite(PIN_LED_RESET_BUTTON, indicatorOn ? 127 : 0);
+  }
 
   SaveEEPROMData();
 }
