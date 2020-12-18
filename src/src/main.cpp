@@ -10,6 +10,14 @@
 // MCU: atmega328p (Arduino Mini)
 // LCD: SSD1306 OLED 128 x 32
 // LEDs: Neopixel strip
+//
+// Known issues:
+//    LCD has corruption on lower right of screen. EMI could be the cause due to a
+//      noisy DC-DC power supply.
+//    MCU crashes upon serial prints during EEPROM read or load. Likely a low RAM
+//      issue.
+
+
 
 #include <Arduino.h>
 #include <SPI.h>
@@ -30,9 +38,6 @@
 #define PIN_LED_STRIP 9
 #define PIN_LED_BUILTIN 13
 
-#define DELAY_DEBOUNCE_MS 50
-#define DELAY_INDICATOR_MS 10 // Rise/Decay time for indicator (ms)
-
 const int selectedItemFlash = 500;
 
 RtcDS1307<TwoWire> Rtc(Wire);
@@ -50,10 +55,6 @@ Button buttonPrev(PIN_BUTTON_PREV);
 Button buttonNext(PIN_BUTTON_NEXT);
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(7, PIN_LED_STRIP, NEO_GRB + NEO_KHZ800);
-
-const unsigned long
-    REPEAT_FIRST(500), // ms required before repeating on long press
-    REPEAT_INCR(100);  // repeat interval for long press
 
 #define countof(a) (sizeof(a) / sizeof(a[0]))
 
@@ -85,8 +86,8 @@ struct Alarm
   byte hour;
   byte minute;
 };
-Alarm alarms[maxNumAlarms + 1];
-Alarm oldAlarms[maxNumAlarms + 1];
+Alarm alarms[maxNumAlarms];
+Alarm oldAlarms[maxNumAlarms];
 
 const char *colorText[5] = {"Red", "Green", "Blue", "Random", "Rainbow"};
 enum Colors
@@ -122,13 +123,13 @@ enum Speeds
 };
 int selectedSpeed = FLASH;
 
-void Error(int x)
+void Error()
 {
   // Loop forever, indicates fatal error.
   analogWrite(PIN_LED_RESET_BUTTON, 0);
-  delay(1000);
+  delay(500);
   analogWrite(PIN_LED_RESET_BUTTON, 127);
-  delay(x);
+  delay(100);
 }
 
 // Pack color data into 32 bit unsigned int (copied from Neopixel library).
@@ -224,7 +225,7 @@ void ProcessIndicator(bool indicatorOn)
   }
   else if (selectedPattern == SINWAVE)
   {
-    static  int sinValue = 0;
+    static int sinValue = 0;
     static unsigned long last = millis();
 
     unsigned int delay = selectedSpeed == 0 ? 10 : selectedSpeed == 1 ? 5 : selectedSpeed == 2 ? 1 : 0;
@@ -235,11 +236,11 @@ void ProcessIndicator(bool indicatorOn)
       sinValue++;
       if (sinValue == 361)
       {
-        sinValue = 0;      
+        sinValue = 0;
       }
-      if (sinValue == 180) 
+      if (sinValue == 180)
       {
-          newRandomColorFlag = true;
+        newRandomColorFlag = true;
       }
     }
     strip.setBrightness((255 / 2) + (255 / 2) * sin(radians(sinValue)));
@@ -402,24 +403,24 @@ bool ProcessControlButtons()
     }
     else if (selectedMenuItem == ALARM_HOUR)
     {
-      if (alarms[selectedAlarm].hour == 0)
+      if (alarms[selectedAlarm - 1].hour == 0)
       {
-        alarms[selectedAlarm].hour = 23;
+        alarms[selectedAlarm - 1].hour = 23;
       }
       else
       {
-        alarms[selectedAlarm].hour--;
+        alarms[selectedAlarm - 1].hour--;
       }
     }
     else if (selectedMenuItem == ALARM_MIN)
     {
-      if (alarms[selectedAlarm].minute == 0)
+      if (alarms[selectedAlarm - 1].minute == 0)
       {
-        alarms[selectedAlarm].minute = 59;
+        alarms[selectedAlarm - 1].minute = 59;
       }
       else
       {
-        alarms[selectedAlarm].minute--;
+        alarms[selectedAlarm - 1].minute--;
       }
     }
     else if (selectedMenuItem == COLOR)
@@ -493,18 +494,18 @@ bool ProcessControlButtons()
     }
     else if (selectedMenuItem == ALARM_HOUR)
     {
-      alarms[selectedAlarm].hour++;
-      if (alarms[selectedAlarm].hour > 59)
+      alarms[selectedAlarm - 1].hour++;
+      if (alarms[selectedAlarm - 1].hour > 59)
       {
-        alarms[selectedAlarm].hour = 0;
+        alarms[selectedAlarm - 1].hour = 0;
       }
     }
     else if (selectedMenuItem == ALARM_MIN)
     {
-      alarms[selectedAlarm].minute++;
-      if (alarms[selectedAlarm].minute > 59)
+      alarms[selectedAlarm - 1].minute++;
+      if (alarms[selectedAlarm - 1].minute > 59)
       {
-        alarms[selectedAlarm].minute = 0;
+        alarms[selectedAlarm - 1].minute = 0;
       }
     }
     else if (selectedMenuItem == COLOR)
@@ -627,16 +628,16 @@ void UpdateDisplay(bool updateFlag)
     else if (selectedMenuItem == ALARM_HOUR)
     {
       if (displayValue)
-        sprintf(buf, "%02u:%02u", alarms[selectedAlarm].hour, alarms[selectedAlarm].minute);
+        sprintf(buf, "%02u:%02u", alarms[selectedAlarm - 1].hour, alarms[selectedAlarm - 1].minute);
       else
-        sprintf(buf, "  :%02u", alarms[selectedAlarm].minute);
+        sprintf(buf, "  :%02u", alarms[selectedAlarm - 1].minute);
     }
     else if (selectedMenuItem == ALARM_MIN)
     {
       if (displayValue)
-        sprintf(buf, "%02u:%02u", alarms[selectedAlarm].hour, alarms[selectedAlarm].minute);
+        sprintf(buf, "%02u:%02u", alarms[selectedAlarm - 1].hour, alarms[selectedAlarm - 1].minute);
       else
-        sprintf(buf, "%02u:  ", alarms[selectedAlarm].hour);
+        sprintf(buf, "%02u:  ", alarms[selectedAlarm - 1].hour);
     }
     else if (selectedMenuItem == COLOR)
     {
@@ -700,13 +701,10 @@ void SetupRTC()
   if (!Rtc.IsDateTimeValid())
   {
     if (Rtc.LastError() != 0)
-    {
-      // we have a communications error
-      // see https://www.arduino.cc/en/Reference/WireEndTransmission for
-      // what the number means
+    {   
       Serial.print("RTC communications error = ");
       Serial.println(Rtc.LastError());
-      Error(100);
+      Error();
     }
     else
     {
@@ -782,8 +780,32 @@ void LoadEEPROMData()
   }
   if (numAlarms == 255)
   {
-    numAlarms = 0;
+    numAlarms = 1;
   }
+
+  /*
+  char buf[50];
+
+  Serial.println("Saved variables from EEPROM...");
+
+  sprintf(buf, "Time -> %02u:%02u", timeHour, timeMinute);
+  Serial.println(buf);
+
+  for (int i = 0; i < maxNumAlarms; i++)
+  {
+    sprintf(buf, "Alarm %u -> %02u:%02u", i + 1, alarms[i].hour, alarms[i].minute);
+    Serial.println(buf);
+  }
+
+  sprintf(buf, "Color -> %u", selectedColor);
+  Serial.println(buf);
+  sprintf(buf, "Pattern -> %u", selectedPattern);
+  Serial.println(buf);
+  sprintf(buf, "Speed -> %u", selectedSpeed);
+  Serial.println(buf);
+  sprintf(buf, "No. Alarms -> %u", numAlarms);
+    Serial.println(buf);    
+  */
 }
 
 void SaveEEPROMData()
@@ -798,8 +820,6 @@ void SaveEEPROMData()
   {
     eepromMillis = millis();
 
-    return;
-
     // Check if an alarm was updated by the user.
     for (int i = 0; i < maxNumAlarms; i++)
     {
@@ -809,8 +829,8 @@ void SaveEEPROMData()
         oldAlarms[i].minute = alarms[i].minute;
         EEPROM.write(16 + i, alarms[i].hour);
         EEPROM.write(32 + i, alarms[i].minute);
-        sprintf(buf, "Alarm %u saved as %u:%u.", i, alarms[i].hour, alarms[i].minute);
-        Serial.println(buf);
+        // sprintf(buf, "Alarm %u saved as %u:%u.", i, alarms[i].hour, alarms[i].minute);
+        // Serial.println(buf);
       }
     }
 
@@ -819,31 +839,31 @@ void SaveEEPROMData()
     {
       oldSelectedColor = selectedColor;
       EEPROM.write(0, selectedColor);
-      sprintf(buf, "Saving color value: %u.", selectedColor);
-      Serial.println(buf);
+      // sprintf(buf, "Saving color value: %u.", selectedColor);
+      // Serial.println(buf);
     }
 
     if (oldSelectedPattern != selectedPattern)
     {
       oldSelectedPattern = selectedPattern;
       EEPROM.write(1, selectedPattern);
-      sprintf(buf, "Saving pattern value: %u.", selectedPattern);
-      Serial.println(buf);
+      // sprintf(buf, "Saving pattern value: %u.", selectedPattern);
+      // Serial.println(buf);
     }
 
     if (oldSelectedSpeed != selectedSpeed)
     {
       oldSelectedSpeed = selectedSpeed;
       EEPROM.write(2, selectedSpeed);
-      sprintf(buf, "Saving speed value: %u.", selectedSpeed);
-      Serial.println(buf);
+      // sprintf(buf, "Saving speed value: %u.", selectedSpeed);
+      // Serial.println(buf);
     }
     if (oldNumAlarms != numAlarms)
     {
       oldNumAlarms = numAlarms;
       EEPROM.write(3, numAlarms);
-      sprintf(buf, "Saving numAlarms value: %u.", numAlarms);
-      Serial.println(buf);
+      // sprintf(buf, "Saving numAlarms value: %u.", numAlarms);
+      // Serial.println(buf);
     }
   }
 }
@@ -882,15 +902,14 @@ void setup()
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
   {
     Serial.println(F("SSD1306 allocation failed"));
-    Error(1000);
+    Error();
+  }
+  else
+  {
+    Serial.println(F("SSD1306 allocated"));
   }
 
-  LoadEEPROMData();
-
-  //RtcDateTime dateTime = Rtc.GetDateTime();
-  //timeHour = dateTime.Hour();
-  //timeMinute = dateTime.Minute();
-  //UpdateDisplay(timeHour, timeMinute, alarmHour, alarmMinute);
+  LoadEEPROMData(); 
 }
 
 void loop()
@@ -961,7 +980,7 @@ void loop()
   else
   {
     // RTC error, likely bad battery.
-    Error(100);
+    Error();
   }
 
   if (ProcessResetButton())
