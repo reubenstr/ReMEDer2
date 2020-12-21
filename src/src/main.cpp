@@ -17,8 +17,6 @@
 //    MCU crashes upon serial prints during EEPROM read or load. Likely a low RAM
 //      issue.
 
-
-
 #include <Arduino.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -29,6 +27,7 @@
 #include <EEPROM.h>
 #include <Adafruit_NeoPixel.h>
 #include <JC_Button.h> // https://github.com/JChristensen/JC_Button
+#include "NeoPixelHelper.h" // Local
 
 #define PIN_BUTTON_NEXT 2
 #define PIN_BUTTON_PREV 3
@@ -126,34 +125,13 @@ int selectedSpeed = FLASH;
 void Error()
 {
   // Loop forever, indicates fatal error.
-  analogWrite(PIN_LED_RESET_BUTTON, 0);
-  delay(500);
-  analogWrite(PIN_LED_RESET_BUTTON, 127);
-  delay(100);
-}
-
-// Pack color data into 32 bit unsigned int (copied from Neopixel library).
-uint32_t Color(uint8_t r, uint8_t g, uint8_t b)
-{
-  return (uint32_t)((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
-}
-
-// Input a value 0 to 255 to get a color value (of a pseudo-rainbow).
-// The colours are a transition r - g - b - back to r.
-uint32_t Wheel(byte WheelPos)
-{
-  WheelPos = 255 - WheelPos;
-  if (WheelPos < 85)
+  while (1)
   {
-    return Color(255 - WheelPos * 3, 0, WheelPos * 3);
+    analogWrite(PIN_LED_RESET_BUTTON, 0);
+    delay(500);
+    analogWrite(PIN_LED_RESET_BUTTON, 127);
+    delay(100);
   }
-  if (WheelPos < 170)
-  {
-    WheelPos -= 85;
-    return Color(0, WheelPos * 3, 255 - WheelPos * 3);
-  }
-  WheelPos -= 170;
-  return Color(WheelPos * 3, 255 - WheelPos * 3, 0);
 }
 
 void SetFullStripToColor()
@@ -190,7 +168,7 @@ void SetFullStripToColor()
       wheelPos++;
     }
 
-    for (int i = 0; i < strip.numPixels(); i++)
+    for (unsigned int i = 0; i < strip.numPixels(); i++)
     {
       strip.setPixelColor(i, Wheel(wheelPos + i * (255 / strip.numPixels())));
     }
@@ -199,7 +177,6 @@ void SetFullStripToColor()
 
 void ProcessIndicator(bool indicatorOn)
 {
-
   if (!indicatorOn)
   {
     strip.fill(strip.Color(0, 0, 0), 0, strip.numPixels());
@@ -273,7 +250,7 @@ void ProcessIndicator(bool indicatorOn)
       index = random(0, strip.numPixels());
     }
     strip.setBrightness(255);
-    for (int i = 0; i < strip.numPixels(); i++)
+    for (unsigned int i = 0; i < strip.numPixels(); i++)
     {
       if (i != index)
         strip.setPixelColor(i, strip.Color(0, 0, 0));
@@ -296,7 +273,7 @@ void ProcessIndicator(bool indicatorOn)
       }
     }
     strip.setBrightness(255);
-    for (int i = 0; i < strip.numPixels(); i++)
+    for (unsigned int i = 0; i < strip.numPixels(); i++)
     {
       if (i != index)
         strip.setPixelColor(i, strip.Color(0, 0, 0));
@@ -701,7 +678,7 @@ void SetupRTC()
   if (!Rtc.IsDateTimeValid())
   {
     if (Rtc.LastError() != 0)
-    {   
+    {
       Serial.print("RTC communications error = ");
       Serial.println(Rtc.LastError());
       Error();
@@ -901,15 +878,15 @@ void setup()
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
   {
-    Serial.println(F("SSD1306 allocation failed"));
+    Serial.println(F("SSD1306 allocation failed."));
     Error();
   }
   else
   {
-    Serial.println(F("SSD1306 allocated"));
+    Serial.println(F("SSD1306 allocated."));
   }
 
-  LoadEEPROMData(); 
+  LoadEEPROMData();
 }
 
 void loop()
@@ -933,7 +910,7 @@ void loop()
       oldTimeHour = timeHour;
       oldTimeMinute = timeMinute;
       Rtc.SetDateTime(RtcDateTime(2020, 1, 1, timeHour, timeMinute, 0));
-      Serial.println("Saving time data to RTC");
+      Serial.println("Saving time data to RTC.");
     }
   }
 
@@ -966,13 +943,11 @@ void loop()
       oldTimeMinute = timeMinute;
 
       // Check for alarm trigger.
-      for (int i = 0; i < maxNumAlarms; i++)
+      for (int i = 0; i < numAlarms; i++)
       {
         if (timeHour == alarms[i].hour && timeMinute == alarms[i].minute)
         {
-          indicatorOn = true;
-          Serial.print("Triggered alarm: ");
-          Serial.println(i);
+          indicatorOn = true;          
         }
       }
     }
