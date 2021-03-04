@@ -3,7 +3,7 @@
 	Reuben Strangelove
 	Winter 2020
 
-	A flashing alarm/indicator as a reminder to take medicine before bedtime.
+  A visual reminder to take your medicine.
 
 	MCU: 
 		Arduino Mini (AtMega328p)
@@ -12,21 +12,20 @@
 	LCD: 
 		SSD1306 OLED 128 x 32
 	LEDs: 
-		Neopixel strip
-  
+		Neopixel strip  
 */
 
 #include <Arduino.h>
 #include <SPI.h>
 #include <Wire.h>
-#include <RtcDS1307.h> 			// RTC Library: https://github.com/Makuna/Rtc
+#include <RtcDS1307.h> // RTC Library: https://github.com/Makuna/Rtc
 #include <Adafruit_I2CDevice.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <EEPROM.h>
 #include <Adafruit_NeoPixel.h>
-#include <JC_Button.h> 			// https://github.com/JChristensen/JC_Button
-#include "NeoPixelHelper.h" 	// Local
+#include <JC_Button.h>      // https://github.com/JChristensen/JC_Button
+#include "NeoPixelHelper.h" // Local
 
 #define PIN_BUTTON_NEXT 2
 #define PIN_BUTTON_PREV 3
@@ -117,11 +116,11 @@ enum Speeds
 //
 struct UserParams
 {
-	int color;
-	int pattern;
-	int speed;
-	int numAlarms;
-	Alarm alarms[maxNumAlarms];	
+  int color;
+  int pattern;
+  int speed;
+  int numAlarms;
+  Alarm alarms[maxNumAlarms];
 } userParams;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -195,7 +194,9 @@ void ProcessIndicator(bool indicatorOn)
     static bool toggleFlag = true;
     static unsigned long last = millis();
 
-    unsigned int delay = userParams.speed == 0 ? 2000 : userParams.speed == 1 ? 1000 : userParams.speed == 2 ? 500 : 100;
+    unsigned int delay = userParams.speed == 0 ? 2000 : userParams.speed == 1 ? 1000
+                                                    : userParams.speed == 2   ? 500
+                                                                              : 100;
     if (millis() - last > delay)
     {
       last = millis();
@@ -209,7 +210,9 @@ void ProcessIndicator(bool indicatorOn)
     static int sinValue = 0;
     static unsigned long last = millis();
 
-    unsigned int delay = userParams.speed == 0 ? 10 : userParams.speed == 1 ? 5 : userParams.speed == 2 ? 1 : 0;
+    unsigned int delay = userParams.speed == 0 ? 10 : userParams.speed == 1 ? 5
+                                                  : userParams.speed == 2   ? 1
+                                                                            : 0;
     if (millis() - last > delay)
     {
       last = millis();
@@ -231,7 +234,9 @@ void ProcessIndicator(bool indicatorOn)
     static unsigned long last = millis();
     static bool toggleFlag = true;
 
-    unsigned int delay = userParams.speed == 0 ? 3000 : userParams.speed == 1 ? 1500 : userParams.speed == 2 ? 500 : 100;
+    unsigned int delay = userParams.speed == 0 ? 3000 : userParams.speed == 1 ? 1500
+                                                    : userParams.speed == 2   ? 500
+                                                                              : 100;
     unsigned int strobeDelay = toggleFlag ? 250 : delay;
     if (millis() - last > strobeDelay)
     {
@@ -246,7 +251,9 @@ void ProcessIndicator(bool indicatorOn)
     static byte index = 0;
     static unsigned long last = millis();
 
-    unsigned int delay = userParams.speed == 0 ? 1000 : userParams.speed == 1 ? 500 : userParams.speed == 2 ? 200 : 200;
+    unsigned int delay = userParams.speed == 0 ? 1000 : userParams.speed == 1 ? 500
+                                                    : userParams.speed == 2   ? 200
+                                                                              : 200;
     if (millis() - last > delay)
     {
       last = millis();
@@ -265,7 +272,9 @@ void ProcessIndicator(bool indicatorOn)
     static byte index = 0;
     static unsigned long last = millis();
 
-    unsigned int delay = userParams.speed == 0 ? 500 : userParams.speed == 1 ? 250 : userParams.speed == 2 ? 100 : 100;
+    unsigned int delay = userParams.speed == 0 ? 500 : userParams.speed == 1 ? 250
+                                                   : userParams.speed == 2   ? 100
+                                                                             : 100;
     if (millis() - last > delay)
     {
       last = millis();
@@ -532,7 +541,7 @@ void UpdateDisplay(bool updateFlag)
   }
 
   int flashDelay = displayValue ? 600 : 100; // selectedItemFlash
-  if ((flashMillis + flashDelay) < millis())
+  if (millis() - flashMillis > flashDelay)  
   {
     flashMillis = millis();
     displayValue = !displayValue;
@@ -603,7 +612,7 @@ void UpdateDisplay(bool updateFlag)
         sprintf(buf, "%02u:  ", timeHour);
     }
     else if (selectedMenuItem == NUMALARMS)
-    {     
+    {
       sprintf(buf, "%u        ", userParams.numAlarms);
     }
     else if (selectedMenuItem == ALARM_HOUR)
@@ -724,12 +733,12 @@ void SetupRTC()
 }
 
 void LoadEEPROMData()
-{	
-	EEPROM.get(0, userParams);
-	
-	// Check if EEPROM data has not not been initiated.
+{
+  EEPROM.get(0, userParams);
+
+  // Check if EEPROM data has not not been initiated.
   for (int i = 0; i < maxNumAlarms; i++)
-  {  
+  {
     if (userParams.alarms[i].hour == 255)
     {
       userParams.alarms[i].hour = 0;
@@ -756,26 +765,6 @@ void LoadEEPROMData()
   {
     userParams.numAlarms = 1;
   }
-
-  /*
-  char buf[50];
-  Serial.println("Saved variables from EEPROM...");
-  sprintf(buf, "Time -> %02u:%02u", timeHour, timeMinute);
-  Serial.println(buf);
-  for (int i = 0; i < maxNumAlarms; i++)
-  {
-    sprintf(buf, "Alarm %u -> %02u:%02u", i + 1, alarms[i].hour, alarms[i].minute);
-    Serial.println(buf);
-  }
-  sprintf(buf, "Color -> %u", selectedColor);
-  Serial.println(buf);
-  sprintf(buf, "Pattern -> %u", selectedPattern);
-  Serial.println(buf);
-  sprintf(buf, "Speed -> %u", selectedSpeed);
-  Serial.println(buf);
-  sprintf(buf, "No. Alarms -> %u", numAlarms);
-    Serial.println(buf);    
-  */
 }
 
 void SaveEEPROMData()
@@ -814,7 +803,7 @@ void setup()
 
   SetupRTC();
 
-delay(1000);
+  delay(1000);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
   {
@@ -886,7 +875,7 @@ void loop()
       {
         if (timeHour == userParams.alarms[i].hour && timeMinute == userParams.alarms[i].minute)
         {
-          indicatorOn = true;          
+          indicatorOn = true;
         }
       }
     }
