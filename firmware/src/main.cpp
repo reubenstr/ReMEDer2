@@ -1,33 +1,32 @@
-//
-// ReMEDer
-// Version: 2
-//
-// A flashing alarm/indicator as a reminder to take medicine before bedtime.
-//
-// Reuben Strangelove
-// Winter 2020
-//
-// MCU: atmega328p (Arduino Mini)
-// LCD: SSD1306 OLED 128 x 32
-// LEDs: Neopixel strip
-//
-// Known issues:
-//    LCD has corruption on lower right of screen. EMI could be the cause due to a
-//      noisy DC-DC power supply.
-//    MCU crashes upon serial prints during EEPROM read or load. Likely a low RAM
-//      issue.
+/*
+	ReMEDer2
+	Reuben Strangelove
+	Winter 2020
+
+	A flashing alarm/indicator as a reminder to take medicine before bedtime.
+
+	MCU: 
+		Arduino Mini (AtMega328p)
+  RTC:
+    DS1307
+	LCD: 
+		SSD1306 OLED 128 x 32
+	LEDs: 
+		Neopixel strip
+  
+*/
 
 #include <Arduino.h>
 #include <SPI.h>
 #include <Wire.h>
-#include <RtcDS1307.h> // RTC Library: https://github.com/Makuna/Rtc
+#include <RtcDS1307.h> 			// RTC Library: https://github.com/Makuna/Rtc
 #include <Adafruit_I2CDevice.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <EEPROM.h>
 #include <Adafruit_NeoPixel.h>
-#include <JC_Button.h> // https://github.com/JChristensen/JC_Button
-#include "NeoPixelHelper.h" // Local
+#include <JC_Button.h> 			// https://github.com/JChristensen/JC_Button
+#include "NeoPixelHelper.h" 	// Local
 
 #define PIN_BUTTON_NEXT 2
 #define PIN_BUTTON_PREV 3
@@ -53,14 +52,13 @@ Button buttonSelect(PIN_BUTTON_SELECT);
 Button buttonPrev(PIN_BUTTON_PREV);
 Button buttonNext(PIN_BUTTON_NEXT);
 
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(7, PIN_LED_STRIP, NEO_GRB + NEO_KHZ800);
+const int numPixels = 7;
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(numPixels, PIN_LED_STRIP, NEO_GRB + NEO_KHZ800);
 
 #define countof(a) (sizeof(a) / sizeof(a[0]))
 
 int timeHour, timeMinute, alarmHour, alarmMinute;
-
 bool indicatorOn = false;
-
 bool newRandomColorFlag;
 
 enum Menu
@@ -77,16 +75,13 @@ enum Menu
 };
 int selectedMenuItem = TIME_HOUR;
 
-int numAlarms = 1;
-const int maxNumAlarms = 9;
+const int maxNumAlarms = 6;
 int selectedAlarm;
 struct Alarm
 {
   byte hour;
   byte minute;
 };
-Alarm alarms[maxNumAlarms];
-Alarm oldAlarms[maxNumAlarms];
 
 const char *colorText[5] = {"Red", "Green", "Blue", "Random", "Rainbow"};
 enum Colors
@@ -98,7 +93,6 @@ enum Colors
   RAINBOW,
   MAX_COLOR
 };
-int selectedColor = RED;
 
 const char *patternText[5] = {"Flash", "Sinwave", "Strobe", "Sparkle", "Chase"};
 enum Patterns
@@ -110,7 +104,6 @@ enum Patterns
   CHASE,
   MAX_PATTERN
 };
-int selectedPattern = FLASH;
 
 const char *speedText[5] = {"Slow", "Medium", "Fast"};
 enum Speeds
@@ -120,7 +113,18 @@ enum Speeds
   FAST,
   MAX_SPEED
 };
-int selectedSpeed = FLASH;
+
+//
+struct UserParams
+{
+	int color;
+	int pattern;
+	int speed;
+	int numAlarms;
+	Alarm alarms[maxNumAlarms];	
+} userParams;
+
+///////////////////////////////////////////////////////////////////////////////
 
 void Error()
 {
@@ -136,19 +140,19 @@ void Error()
 
 void SetFullStripToColor()
 {
-  if (selectedColor == RED)
+  if (userParams.color == RED)
   {
     strip.fill(strip.Color(255, 0, 0), 0, strip.numPixels());
   }
-  else if (selectedColor == GREEN)
+  else if (userParams.color == GREEN)
   {
     strip.fill(strip.Color(0, 255, 0), 0, strip.numPixels());
   }
-  else if (selectedColor == BLUE)
+  else if (userParams.color == BLUE)
   {
     strip.fill(strip.Color(0, 0, 255), 0, strip.numPixels());
   }
-  else if (selectedColor == RANDOM)
+  else if (userParams.color == RANDOM)
   {
     static byte wheelPos = 0;
     if (newRandomColorFlag)
@@ -158,7 +162,7 @@ void SetFullStripToColor()
     }
     strip.fill(Wheel(wheelPos), 0, strip.numPixels());
   }
-  else if (selectedColor == RAINBOW)
+  else if (userParams.color == RAINBOW)
   {
     static byte wheelPos = 0;
     static unsigned long last = millis();
@@ -186,12 +190,12 @@ void ProcessIndicator(bool indicatorOn)
 
   SetFullStripToColor();
 
-  if (selectedPattern == FLASH)
+  if (userParams.pattern == FLASH)
   {
     static bool toggleFlag = true;
     static unsigned long last = millis();
 
-    unsigned int delay = selectedSpeed == 0 ? 2000 : selectedSpeed == 1 ? 1000 : selectedSpeed == 2 ? 500 : 100;
+    unsigned int delay = userParams.speed == 0 ? 2000 : userParams.speed == 1 ? 1000 : userParams.speed == 2 ? 500 : 100;
     if (millis() - last > delay)
     {
       last = millis();
@@ -200,12 +204,12 @@ void ProcessIndicator(bool indicatorOn)
     }
     strip.setBrightness(toggleFlag ? 255 : 0);
   }
-  else if (selectedPattern == SINWAVE)
+  else if (userParams.pattern == SINWAVE)
   {
     static int sinValue = 0;
     static unsigned long last = millis();
 
-    unsigned int delay = selectedSpeed == 0 ? 10 : selectedSpeed == 1 ? 5 : selectedSpeed == 2 ? 1 : 0;
+    unsigned int delay = userParams.speed == 0 ? 10 : userParams.speed == 1 ? 5 : userParams.speed == 2 ? 1 : 0;
     if (millis() - last > delay)
     {
       last = millis();
@@ -222,12 +226,12 @@ void ProcessIndicator(bool indicatorOn)
     }
     strip.setBrightness((255 / 2) + (255 / 2) * sin(radians(sinValue)));
   }
-  else if (selectedPattern == STROBE)
+  else if (userParams.pattern == STROBE)
   {
     static unsigned long last = millis();
     static bool toggleFlag = true;
 
-    unsigned int delay = selectedSpeed == 0 ? 3000 : selectedSpeed == 1 ? 1500 : selectedSpeed == 2 ? 500 : 100;
+    unsigned int delay = userParams.speed == 0 ? 3000 : userParams.speed == 1 ? 1500 : userParams.speed == 2 ? 500 : 100;
     unsigned int strobeDelay = toggleFlag ? 250 : delay;
     if (millis() - last > strobeDelay)
     {
@@ -237,12 +241,12 @@ void ProcessIndicator(bool indicatorOn)
     }
     strip.setBrightness(toggleFlag ? 255 : 0);
   }
-  else if (selectedPattern == SPARKLE)
+  else if (userParams.pattern == SPARKLE)
   {
     static byte index = 0;
     static unsigned long last = millis();
 
-    unsigned int delay = selectedSpeed == 0 ? 1000 : selectedSpeed == 1 ? 500 : selectedSpeed == 2 ? 100 : 100;
+    unsigned int delay = userParams.speed == 0 ? 1000 : userParams.speed == 1 ? 500 : userParams.speed == 2 ? 200 : 200;
     if (millis() - last > delay)
     {
       last = millis();
@@ -256,12 +260,12 @@ void ProcessIndicator(bool indicatorOn)
         strip.setPixelColor(i, strip.Color(0, 0, 0));
     }
   }
-  else if (selectedPattern == CHASE)
+  else if (userParams.pattern == CHASE)
   {
     static byte index = 0;
     static unsigned long last = millis();
 
-    unsigned int delay = selectedSpeed == 0 ? 500 : selectedSpeed == 1 ? 250 : selectedSpeed == 2 ? 100 : 100;
+    unsigned int delay = userParams.speed == 0 ? 500 : userParams.speed == 1 ? 250 : userParams.speed == 2 ? 100 : 100;
     if (millis() - last > delay)
     {
       last = millis();
@@ -318,7 +322,7 @@ bool ProcessControlButtons()
     {
       selectedMenuItem = ALARM_HOUR;
       selectedAlarm++;
-      if (selectedAlarm > numAlarms)
+      if (selectedAlarm > userParams.numAlarms)
       {
         selectedAlarm = 0;
         selectedMenuItem += 2;
@@ -369,68 +373,68 @@ bool ProcessControlButtons()
     }
     else if (selectedMenuItem == NUMALARMS)
     {
-      if (numAlarms == 1)
+      if (userParams.numAlarms == 1)
       {
-        numAlarms = maxNumAlarms;
+        userParams.numAlarms = maxNumAlarms;
       }
       else
       {
-        numAlarms--;
+        userParams.numAlarms--;
       }
     }
     else if (selectedMenuItem == ALARM_HOUR)
     {
-      if (alarms[selectedAlarm - 1].hour == 0)
+      if (userParams.alarms[selectedAlarm - 1].hour == 0)
       {
-        alarms[selectedAlarm - 1].hour = 23;
+        userParams.alarms[selectedAlarm - 1].hour = 23;
       }
       else
       {
-        alarms[selectedAlarm - 1].hour--;
+        userParams.alarms[selectedAlarm - 1].hour--;
       }
     }
     else if (selectedMenuItem == ALARM_MIN)
     {
-      if (alarms[selectedAlarm - 1].minute == 0)
+      if (userParams.alarms[selectedAlarm - 1].minute == 0)
       {
-        alarms[selectedAlarm - 1].minute = 59;
+        userParams.alarms[selectedAlarm - 1].minute = 59;
       }
       else
       {
-        alarms[selectedAlarm - 1].minute--;
+        userParams.alarms[selectedAlarm - 1].minute--;
       }
     }
     else if (selectedMenuItem == COLOR)
     {
-      if (selectedColor == 0)
+      if (userParams.color == 0)
       {
-        selectedColor = MAX_COLOR - 1;
+        userParams.color = MAX_COLOR - 1;
       }
       else
       {
-        selectedColor--;
+        userParams.color--;
       }
     }
     else if (selectedMenuItem == PATTERN)
     {
-      if (selectedPattern == 0)
+      if (userParams.pattern == 0)
       {
-        selectedPattern = MAX_PATTERN - 1;
+        userParams.pattern = MAX_PATTERN - 1;
       }
       else
       {
-        selectedPattern--;
+        userParams.pattern--;
       }
     }
     else if (selectedMenuItem == SPEED)
     {
-      if (selectedSpeed == 0)
+      if (userParams.speed == 0)
       {
-        selectedSpeed = MAX_SPEED - 1;
+        userParams.speed = MAX_SPEED - 1;
       }
       else
       {
-        selectedSpeed--;
+        userParams.speed--;
       }
     }
   }
@@ -463,50 +467,50 @@ bool ProcessControlButtons()
     }
     else if (selectedMenuItem == NUMALARMS)
     {
-      numAlarms++;
-      if (numAlarms >= maxNumAlarms)
+      userParams.numAlarms++;
+      if (userParams.numAlarms >= maxNumAlarms)
       {
-        numAlarms = 1;
+        userParams.numAlarms = 1;
       }
     }
     else if (selectedMenuItem == ALARM_HOUR)
     {
-      alarms[selectedAlarm - 1].hour++;
-      if (alarms[selectedAlarm - 1].hour > 59)
+      userParams.alarms[selectedAlarm - 1].hour++;
+      if (userParams.alarms[selectedAlarm - 1].hour > 59)
       {
-        alarms[selectedAlarm - 1].hour = 0;
+        userParams.alarms[selectedAlarm - 1].hour = 0;
       }
     }
     else if (selectedMenuItem == ALARM_MIN)
     {
-      alarms[selectedAlarm - 1].minute++;
-      if (alarms[selectedAlarm - 1].minute > 59)
+      userParams.alarms[selectedAlarm - 1].minute++;
+      if (userParams.alarms[selectedAlarm - 1].minute > 59)
       {
-        alarms[selectedAlarm - 1].minute = 0;
+        userParams.alarms[selectedAlarm - 1].minute = 0;
       }
     }
     else if (selectedMenuItem == COLOR)
     {
-      selectedColor++;
-      if (selectedColor >= MAX_PATTERN)
+      userParams.color++;
+      if (userParams.color >= MAX_PATTERN)
       {
-        selectedColor = 0;
+        userParams.color = 0;
       }
     }
     else if (selectedMenuItem == PATTERN)
     {
-      selectedPattern++;
-      if (selectedPattern >= MAX_PATTERN)
+      userParams.pattern++;
+      if (userParams.pattern >= MAX_PATTERN)
       {
-        selectedPattern = 0;
+        userParams.pattern = 0;
       }
     }
     else if (selectedMenuItem == SPEED)
     {
-      selectedSpeed++;
-      if (selectedSpeed >= MAX_SPEED)
+      userParams.speed++;
+      if (userParams.speed >= MAX_SPEED)
       {
-        selectedSpeed = 0;
+        userParams.speed = 0;
       }
     }
   }
@@ -556,11 +560,11 @@ void UpdateDisplay(bool updateFlag)
 
       if (selectedMenuItem == TIME_HOUR || selectedMenuItem == TIME_MIN)
       {
-        display.println("Time");
+        display.println(F("Time"));
       }
       else if (selectedMenuItem == NUMALARMS)
       {
-        display.println("No. Alarms");
+        display.println(F("No. Alarms"));
       }
       else if (selectedMenuItem == ALARM_HOUR || selectedMenuItem == ALARM_MIN)
       {
@@ -569,15 +573,15 @@ void UpdateDisplay(bool updateFlag)
       }
       else if (selectedMenuItem == COLOR)
       {
-        display.println("Color");
+        display.println(F("Color"));
       }
       else if (selectedMenuItem == PATTERN)
       {
-        display.println("Pattern");
+        display.println(F("Pattern"));
       }
       else if (selectedMenuItem == SPEED)
       {
-        display.println("Speed");
+        display.println(F("Speed"));
       }
     }
 
@@ -599,52 +603,52 @@ void UpdateDisplay(bool updateFlag)
         sprintf(buf, "%02u:  ", timeHour);
     }
     else if (selectedMenuItem == NUMALARMS)
-    {
-      display.println(numAlarms);
+    {     
+      sprintf(buf, "%u        ", userParams.numAlarms);
     }
     else if (selectedMenuItem == ALARM_HOUR)
     {
       if (displayValue)
-        sprintf(buf, "%02u:%02u", alarms[selectedAlarm - 1].hour, alarms[selectedAlarm - 1].minute);
+        sprintf(buf, "%02u:%02u", userParams.alarms[selectedAlarm - 1].hour, userParams.alarms[selectedAlarm - 1].minute);
       else
-        sprintf(buf, "  :%02u", alarms[selectedAlarm - 1].minute);
+        sprintf(buf, "  :%02u", userParams.alarms[selectedAlarm - 1].minute);
     }
     else if (selectedMenuItem == ALARM_MIN)
     {
       if (displayValue)
-        sprintf(buf, "%02u:%02u", alarms[selectedAlarm - 1].hour, alarms[selectedAlarm - 1].minute);
+        sprintf(buf, "%02u:%02u", userParams.alarms[selectedAlarm - 1].hour, userParams.alarms[selectedAlarm - 1].minute);
       else
-        sprintf(buf, "%02u:  ", alarms[selectedAlarm - 1].hour);
+        sprintf(buf, "%02u:  ", userParams.alarms[selectedAlarm - 1].hour);
     }
     else if (selectedMenuItem == COLOR)
     {
       if (displayValue)
       {
-        sprintf(buf, "%-9s\n", colorText[selectedColor]);
+        sprintf(buf, "%-9s\n", colorText[userParams.color]);
         display.println(buf);
       }
       else
-        display.println("         ");
+        display.println(F("         "));
     }
     else if (selectedMenuItem == PATTERN)
     {
       if (displayValue)
       {
-        sprintf(buf, "%-9s\n", patternText[selectedPattern]);
+        sprintf(buf, "%-9s\n", patternText[userParams.pattern]);
         display.println(buf);
       }
       else
-        display.println("         ");
+        display.println(F("         "));
     }
     else if (selectedMenuItem == SPEED)
     {
       if (displayValue)
       {
-        sprintf(buf, "%-9s\n", speedText[selectedSpeed]);
+        sprintf(buf, "%-9s\n", speedText[userParams.speed]);
         display.println(buf);
       }
       else
-        display.println("         ");
+        display.println(F("         "));
     }
 
     display.println(buf);
@@ -688,92 +692,81 @@ void SetupRTC()
       // Common Causes:
       //    1) first time you ran and the device wasn't running yet
       //    2) the battery on the device is low or even missing
-      Serial.println("RTC lost confidence in the DateTime!");
+      Serial.println(F("RTC lost confidence in the DateTime!"));
       Rtc.SetDateTime(compiled);
     }
   }
 
   if (!Rtc.GetIsRunning())
   {
-    Serial.println("RTC was not actively running, starting now");
+    Serial.println(F("RTC was not actively running, starting now"));
     Rtc.SetIsRunning(true);
   }
 
   RtcDateTime now = Rtc.GetDateTime();
   if (now < compiled)
   {
-    Serial.println("RTC is older than compile time!  (Updating DateTime)");
+    Serial.println(F("RTC is older than compile time!  (Updating DateTime)"));
     Rtc.SetDateTime(compiled);
   }
   else if (now > compiled)
   {
-    Serial.println("RTC is newer than compile time. (this is expected)");
+    Serial.println(F("RTC is newer than compile time. (this is expected)"));
   }
   else if (now == compiled)
   {
-    Serial.println("RTC is the same as compile time! (not expected but all is fine)");
+    Serial.println(F("RTC is the same as compile time! (not expected but all is fine)"));
   }
 
   Rtc.SetSquareWavePin(DS1307SquareWaveOut_Low);
 
-  Serial.println("RTC setup finished.");
+  Serial.println(F("RTC setup finished."));
 }
 
 void LoadEEPROMData()
-{
-  selectedColor = EEPROM.read(0);
-  selectedPattern = EEPROM.read(1);
-  selectedSpeed = EEPROM.read(2);
-  numAlarms = EEPROM.read(3);
-
+{	
+	EEPROM.get(0, userParams);
+	
+	// Check if EEPROM data has not not been initiated.
   for (int i = 0; i < maxNumAlarms; i++)
-  {
-    alarms[i].hour = EEPROM.read(16 + i);
-    alarms[i].minute = EEPROM.read(32 + i);
-    oldAlarms[i].hour = alarms[i].hour;
-    oldAlarms[i].minute = alarms[i].minute;
-
-    if (alarms[i].hour == 255)
+  {  
+    if (userParams.alarms[i].hour == 255)
     {
-      alarms[i].hour = 0;
+      userParams.alarms[i].hour = 0;
     }
-    if (alarms[i].minute == 255)
+    if (userParams.alarms[i].minute == 255)
     {
-      alarms[i].minute = 0;
+      userParams.alarms[i].minute = 0;
     }
   }
 
-  if (selectedColor == 255)
+  if (userParams.color == 255)
   {
-    selectedColor = 0;
+    userParams.color = 0;
   }
-  if (selectedPattern == 255)
+  if (userParams.pattern == 255)
   {
-    selectedPattern = 0;
+    userParams.pattern = 0;
   }
-  if (selectedSpeed == 255)
+  if (userParams.speed == 255)
   {
-    selectedSpeed = 0;
+    userParams.speed = 0;
   }
-  if (numAlarms == 255)
+  if (userParams.numAlarms == 255)
   {
-    numAlarms = 1;
+    userParams.numAlarms = 1;
   }
 
   /*
   char buf[50];
-
   Serial.println("Saved variables from EEPROM...");
-
   sprintf(buf, "Time -> %02u:%02u", timeHour, timeMinute);
   Serial.println(buf);
-
   for (int i = 0; i < maxNumAlarms; i++)
   {
     sprintf(buf, "Alarm %u -> %02u:%02u", i + 1, alarms[i].hour, alarms[i].minute);
     Serial.println(buf);
   }
-
   sprintf(buf, "Color -> %u", selectedColor);
   Serial.println(buf);
   sprintf(buf, "Pattern -> %u", selectedPattern);
@@ -787,70 +780,15 @@ void LoadEEPROMData()
 
 void SaveEEPROMData()
 {
-  static int oldSelectedColor, oldSelectedPattern, oldSelectedSpeed;
-  static int oldNumAlarms;
-  char buf[50];
-
-  // Check if variables to be saved to eeprom or RTC have changed.
-  static unsigned long eepromMillis;
-  if ((eepromMillis + 5000) < millis())
-  {
-    eepromMillis = millis();
-
-    // Check if an alarm was updated by the user.
-    for (int i = 0; i < maxNumAlarms; i++)
-    {
-      if (oldAlarms[i].hour != alarms[i].hour || oldAlarms[i].minute != alarms[i].minute)
-      {
-        oldAlarms[i].hour = alarms[i].hour;
-        oldAlarms[i].minute = alarms[i].minute;
-        EEPROM.write(16 + i, alarms[i].hour);
-        EEPROM.write(32 + i, alarms[i].minute);
-        // sprintf(buf, "Alarm %u saved as %u:%u.", i, alarms[i].hour, alarms[i].minute);
-        // Serial.println(buf);
-      }
-    }
-
-    // Check if options was updated by the user.
-    if (oldSelectedColor != selectedColor)
-    {
-      oldSelectedColor = selectedColor;
-      EEPROM.write(0, selectedColor);
-      // sprintf(buf, "Saving color value: %u.", selectedColor);
-      // Serial.println(buf);
-    }
-
-    if (oldSelectedPattern != selectedPattern)
-    {
-      oldSelectedPattern = selectedPattern;
-      EEPROM.write(1, selectedPattern);
-      // sprintf(buf, "Saving pattern value: %u.", selectedPattern);
-      // Serial.println(buf);
-    }
-
-    if (oldSelectedSpeed != selectedSpeed)
-    {
-      oldSelectedSpeed = selectedSpeed;
-      EEPROM.write(2, selectedSpeed);
-      // sprintf(buf, "Saving speed value: %u.", selectedSpeed);
-      // Serial.println(buf);
-    }
-    if (oldNumAlarms != numAlarms)
-    {
-      oldNumAlarms = numAlarms;
-      EEPROM.write(3, numAlarms);
-      // sprintf(buf, "Saving numAlarms value: %u.", numAlarms);
-      // Serial.println(buf);
-    }
-  }
+  EEPROM.put(0, userParams);
 }
 
 void BlinkOnboardLED()
 {
   static unsigned long builtinLedMillis;
   static bool toggle;
-  int delay = toggle ? 100 : 900;
-  if ((builtinLedMillis + delay) < millis())
+  unsigned int delay = toggle ? 100 : 900;
+  if (millis() - builtinLedMillis > delay)
   {
     builtinLedMillis = millis();
     toggle = !toggle;
@@ -861,7 +799,7 @@ void BlinkOnboardLED()
 void setup()
 {
   Serial.begin(115200);
-  Serial.println("ReMEDer starting up...");
+  Serial.println(F("ReMEDer starting up..."));
 
   strip.begin();
   strip.show();
@@ -875,6 +813,8 @@ void setup()
   buttonNext.begin();
 
   SetupRTC();
+
+delay(1000);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
   {
@@ -891,7 +831,6 @@ void setup()
 
 void loop()
 {
-
   static unsigned long displayTimeoutMillis;
 
   BlinkOnboardLED();
@@ -910,7 +849,7 @@ void loop()
       oldTimeHour = timeHour;
       oldTimeMinute = timeMinute;
       Rtc.SetDateTime(RtcDateTime(2020, 1, 1, timeHour, timeMinute, 0));
-      Serial.println("Saving time data to RTC.");
+      Serial.println(F("Saving time data to RTC."));
     }
   }
 
@@ -943,9 +882,9 @@ void loop()
       oldTimeMinute = timeMinute;
 
       // Check for alarm trigger.
-      for (int i = 0; i < numAlarms; i++)
+      for (int i = 0; i < userParams.numAlarms; i++)
       {
-        if (timeHour == alarms[i].hour && timeMinute == alarms[i].minute)
+        if (timeHour == userParams.alarms[i].hour && timeMinute == userParams.alarms[i].minute)
         {
           indicatorOn = true;          
         }
